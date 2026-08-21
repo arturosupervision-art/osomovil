@@ -23,12 +23,12 @@
         <p class="text-xs text-slate-400 mt-1">Selecciona la ruta de hoy</p>
       </div>
 
-      <div id="mensaje-error" class="hidden bg-red-950/80 border border-red-500 text-red-300 p-3 rounded-xl text-xs"></div>
+      <div id="mensaje-error" class="hidden bg-red-950/80 border border-red-500 text-red-300 p-3 rounded-xl text-xs text-left break-words"></div>
 
       <form id="form-login" class="space-y-4 text-left">
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">ID / Matrícula Alumno:</label>
-          <input type="text" id="id_alumno" required placeholder="Ej. A-102" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:border-amber-500 outline-none uppercase" />
+          <input type="text" id="id_alumno" required placeholder="Ej. 0001" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:border-amber-500 outline-none uppercase" />
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">NIP de Acceso:</label>
@@ -66,10 +66,10 @@
   </div>
 
   <script>
-    // 👇👇 RECUERDA PONER TUS CLAVES REALES AQUÍ 👇👇
-    const SUPABASE_URL = 'https://ejxuwxmfesmqgegofkuh.supabase.co/rest/v1/';
-    const SUPABASE_KEY = 'sb_publishable_b3kdpGf2TtgDrjzh_6RMqw_gitqXtF1';
-    // 👆👆 ======================================== 👆👆
+    // 👇👇 REEMPLAZA CON TU URL Y TU CLAVE ANON (eyJ...) 👇👇
+    const SUPABASE_URL = 'https://ejxuxwmfesmgqegofkuh.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqeHV3eG1mZXNtcWdlZ29ma3VoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4OTQxNDQsImV4cCI6MjEwMDQ3MDE0NH0.44i3oXzeWQpz1U7w5EcyBu3Q04vHhuefZnc-ntxXPMs';
+    // 👆👆 ======================================================= 👆👆
     
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -99,18 +99,29 @@
         .eq('nip', nip)
         .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
+        console.error("Error en Supabase:", error);
+        mensajeError.textContent = `⚠️ Error de conexion: ${error.message}`;
+        mensajeError.classList.remove('hidden');
+        return;
+      }
+
+      if (!data) {
         mensajeError.textContent = '❌ ID o NIP incorrectos. Verifica tus datos.';
         mensajeError.classList.remove('hidden');
         return;
       }
 
-      // 2. REGISTRAR EN LA BITÁCORA (Tu idea maestra)
-      await db.from('osomovil_bitacora').insert([{
+      // 2. REGISTRAR EN LA BITÁCORA
+      const bitacoraRes = await db.from('osomovil_bitacora').insert([{
         id_alumno: idAlumno,
         nip_usado: nip,
         ruta_seleccionada: rutaActiva
       }]);
+
+      if (bitacoraRes.error) {
+        console.warn("Aviso bitácora:", bitacoraRes.error.message);
+      }
 
       // 3. Entrar al mapa
       document.getElementById('info-ruta').textContent = `Ruta: ${rutaActiva}`;
@@ -126,7 +137,7 @@
 
     function inicializarMapa() {
       if(map) { map.remove(); }
-      map = L.map('map', { zoomControl: false }).setView([19.2826, -99.6556], 14); // Coordenadas Toluca aprox
+      map = L.map('map', { zoomControl: false }).setView([19.2826, -99.6556], 14);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
@@ -147,7 +158,7 @@
     }
 
     async function actualizarPosicionBus() {
-      const { data, error } = await db
+      const { data } = await db
         .from('osomovil_gps')
         .select('*')
         .eq('nombre_ruta', rutaActiva)
