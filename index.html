@@ -38,13 +38,12 @@
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">Ruta a Monitorear:</label>
           <select id="ruta_seleccionada" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:border-amber-500 outline-none cursor-pointer">
-            <!-- AQUÍ ESTÁN LOS VALORES EXACTOS DE TU BASE DE DATOS -->
             <option value="LA LOMA">Ruta La Loma</option>
             <option value="PACIFICO">Ruta Pacífico</option>
           </select>
         </div>
 
-        <button type="submit" id="btn-ingresar" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-colors mt-2">
+        <button type="submit" id="btn-ingresar" class="w-full bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl shadow-lg transition-colors mt-2">
           Ver Ubicación
         </button>
       </form>
@@ -55,10 +54,13 @@
   <div id="pantalla-mapa" class="hidden flex-col h-screen w-full relative">
     <header class="absolute top-4 left-4 right-4 z-[1000] bg-slate-800/90 backdrop-blur border border-slate-700 p-4 rounded-2xl shadow-xl flex justify-between items-center">
       <div>
-        <span id="info-ruta" class="text-xs font-bold text-amber-400 uppercase tracking-wider">Cargando...</span>
+        <div class="flex items-center gap-2">
+          <span id="info-ruta" class="text-xs font-bold text-amber-400 uppercase tracking-wider">Cargando...</span>
+          <span id="estado-gps" class="text-[10px] bg-emerald-900/80 text-emerald-300 border border-emerald-500 px-2 py-0.5 rounded-full hidden">En vivo</span>
+        </div>
         <h2 id="info-alumno" class="text-sm font-bold text-white">Alumno</h2>
       </div>
-      <button onclick="cerrarSesion()" class="bg-slate-700 hover:bg-red-900/80 border border-slate-600 text-xs px-3 py-1.5 rounded-xl text-slate-200">
+      <button onclick="cerrarSesion()" class="bg-slate-700 hover:bg-red-900/80 border border-slate-600 text-xs px-3 py-1.5 rounded-xl text-slate-200 transition-colors">
         Salir
       </button>
     </header>
@@ -67,7 +69,6 @@
   </div>
 
   <script>
-    // URL corregida y lista
     const SUPABASE_URL = 'https://ejxuwxmfesmqgegofkuh.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqeHV3eG1mZXNtcWdlZ29ma3VoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4OTQxNDQsImV4cCI6MjEwMDQ3MDE0NH0.44i3oXzeWQpz1U7w5EcyBu3Q04vHhuefZnc-ntxXPMs';
     
@@ -82,70 +83,74 @@
     const pantallaLogin = document.getElementById('pantalla-login');
     const pantallaMapa = document.getElementById('pantalla-mapa');
     const mensajeError = document.getElementById('mensaje-error');
+    const btnIngresar = document.getElementById('btn-ingresar');
+    const estadoGps = document.getElementById('estado-gps');
 
     formLogin.addEventListener('submit', async (e) => {
       e.preventDefault();
       mensajeError.classList.add('hidden');
+      btnIngresar.disabled = true;
+      btnIngresar.textContent = 'Validando...';
       
       const idAlumno = document.getElementById('id_alumno').value.trim();
       const nip = document.getElementById('nip').value.trim();
       rutaActiva = document.getElementById('ruta_seleccionada').value;
 
-      // 1. Validar accesos
-      const { data, error } = await db
-        .from('osomovil_accesos')
-        .select('*')
-        .eq('id_alumno', idAlumno)
-        .eq('nip', nip)
-        .maybeSingle();
+      try {
+        // 1. Validar accesos
+        const { data, error } = await db
+          .from('osomovil_accesos')
+          .select('*')
+          .eq('id_alumno', idAlumno)
+          .eq('nip', nip)
+          .maybeSingle();
 
-      if (error) {
-        console.error("Error en Supabase:", error);
-        mensajeError.textContent = `⚠️ Error de conexion: ${error.message}`;
+        if (error) throw error;
+
+        if (!data) {
+          mensajeError.textContent = '❌ ID o NIP incorrectos. Verifica tus datos.';
+          mensajeError.classList.remove('hidden');
+          return;
+        }
+
+        // 2. Registrar en la bitácora
+        await db.from('osomovil_bitacora').insert([{
+          id_alumno: idAlumno,
+          nip_usado: nip,
+          ruta_seleccionada: rutaActiva
+        }]);
+
+        // 3. Entrar al mapa
+        const textoRuta = document.getElementById('ruta_seleccionada').options[document.getElementById('ruta_seleccionada').selectedIndex].text;
+        document.getElementById('info-ruta').textContent = `Ruta: ${textoRuta}`;
+        document.getElementById('info-alumno').textContent = `Alumno: ${idAlumno}`;
+
+        pantallaLogin.classList.add('hidden');
+        pantallaMapa.classList.remove('hidden');
+        pantallaMapa.classList.add('flex');
+
+        inicializarMapa();
+        
+        setTimeout(() => {
+          if (map) map.invalidateSize();
+        }, 250);
+
+        iniciarRastreo();
+
+      } catch (err) {
+        console.error("Error en Supabase:", err);
+        mensajeError.textContent = `⚠️ Error de conexión: ${err.message || err}`;
         mensajeError.classList.remove('hidden');
-        return;
+      } finally {
+        btnIngresar.disabled = false;
+        btnIngresar.textContent = 'Ver Ubicación';
       }
-
-      if (!data) {
-        mensajeError.textContent = '❌ ID o NIP incorrectos. Verifica tus datos.';
-        mensajeError.classList.remove('hidden');
-        return;
-      }
-
-      // 2. REGISTRAR EN LA BITÁCORA
-      const bitacoraRes = await db.from('osomovil_bitacora').insert([{
-        id_alumno: idAlumno,
-        nip_usado: nip,
-        ruta_seleccionada: rutaActiva
-      }]);
-
-      if (bitacoraRes.error) {
-        console.warn("Aviso bitácora:", bitacoraRes.error.message);
-      }
-
-      // 3. Entrar al mapa
-      // Mostramos el texto bonito de la ruta seleccionada
-      const textoRuta = document.getElementById('ruta_seleccionada').options[document.getElementById('ruta_seleccionada').selectedIndex].text;
-      document.getElementById('info-ruta').textContent = `Ruta: ${textoRuta}`;
-      document.getElementById('info-alumno').textContent = `Alumno: ${idAlumno}`;
-
-      pantallaLogin.classList.add('hidden');
-      pantallaMapa.classList.remove('hidden');
-      pantallaMapa.classList.add('flex');
-
-      inicializarMapa();
-      
-      // FIX para que el mapa cargue sin quedarse oscuro
-      setTimeout(() => {
-        if(map) map.invalidateSize();
-      }, 250);
-
-      iniciarRastreo();
     });
 
     function inicializarMapa() {
-      if(map) { map.remove(); }
+      if (map) { map.remove(); }
       map = L.map('map', { zoomControl: false }).setView([19.2826, -99.6556], 14);
+      
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
@@ -161,30 +166,38 @@
     }
 
     function iniciarRastreo() {
+      if (intervalId) clearInterval(intervalId);
       actualizarPosicionBus();
       intervalId = setInterval(actualizarPosicionBus, 3000);
     }
 
     async function actualizarPosicionBus() {
-      const { data } = await db
+      const { data, error } = await db
         .from('osomovil_gps')
         .select('*')
         .eq('nombre_ruta', rutaActiva)
         .maybeSingle();
 
-      if (data && data.latitud && data.longitud) {
+      if (!error && data && data.latitud && data.longitud) {
         const nuevaPos = [data.latitud, data.longitud];
         busMarker.setLatLng(nuevaPos);
         map.panTo(nuevaPos);
+        estadoGps.classList.remove('hidden');
+      } else {
+        estadoGps.classList.add('hidden');
       }
     }
 
     function cerrarSesion() {
-      if (intervalId) clearInterval(intervalId);
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
       pantallaMapa.classList.add('hidden');
       pantallaMapa.classList.remove('flex');
       pantallaLogin.classList.remove('hidden');
       document.getElementById('nip').value = '';
+      estadoGps.classList.add('hidden');
     }
   </script>
 </body>
